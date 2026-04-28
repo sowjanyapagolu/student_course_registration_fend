@@ -1,58 +1,127 @@
 import React, { useState, useEffect } from 'react';
 
-const availableCourses = [
-  { id: 1, name: 'Data Structures', code: 'CS201', credits: 4, instructor: 'Dr. Smith', schedule: 'Mon/Wed 10:00-11:30' },
-  { id: 2, name: 'Database Systems', code: 'CS301', credits: 3, instructor: 'Dr. Johnson', schedule: 'Tue/Thu 14:00-15:30' },
-  { id: 3, name: 'Web Development', code: 'CS302', credits: 3, instructor: 'Prof. Williams', schedule: 'Mon/Wed 14:00-15:30' },
-  { id: 4, name: 'Operating Systems', code: 'CS303', credits: 4, instructor: 'Dr. Brown', schedule: 'Tue/Thu 10:00-11:30' },
-  { id: 5, name: 'Computer Networks', code: 'CS304', credits: 3, instructor: 'Prof. Davis', schedule: 'Mon/Wed 16:00-17:30' },
-  { id: 6, name: 'Software Engineering', code: 'CS401', credits: 4, instructor: 'Dr. Miller', schedule: 'Tue/Thu 16:00-17:30' },
-  { id: 7, name: 'Machine Learning', code: 'CS402', credits: 4, instructor: 'Dr. Wilson', schedule: 'Mon/Wed 10:00-11:30' },
-  { id: 8, name: 'Artificial Intelligence', code: 'CS403', credits: 4, instructor: 'Prof. Moore', schedule: 'Tue/Thu 14:00-15:30' }
-];
-
 const Courses = () => {
-  const [selectedCourses, setSelectedCourses] = useState([]);
-  
+  const user = JSON.parse(localStorage.getItem('user'));
+  const isAdmin = user && user.role === 'admin';
+
+  const [courses, setCourses] = useState([]);
+  const [enrolledIds, setEnrolledIds] = useState(new Set());
+  const [processingIds, setProcessingIds] = useState(new Set());
+  const [message, setMessage] = useState('');
+  const [loading, setLoading] = useState(false);
+
   useEffect(() => {
-    const saved = JSON.parse(localStorage.getItem('selectedCourses')) || [];
-    setSelectedCourses(saved);
+    fetchCourses();
+    if (!isAdmin && user?.id) fetchEnrollments();
   }, []);
-  
-  const handleCourseToggle = (course) => {
-    let updated;
-    if (selectedCourses.find(c => c.id === course.id)) {
-      updated = selectedCourses.filter(c => c.id !== course.id);
-    } else {
-      updated = [...selectedCourses, course];
+
+  const fetchCourses = async () => {
+    setLoading(true);
+    try {
+      const res = await fetch('http://localhost:8080/courses');
+      const data = await res.json();
+      setCourses(data);
+    } catch (err) {
+      setMessage('❌ Failed to load courses');
+    } finally {
+      setLoading(false);
     }
-    setSelectedCourses(updated);
-    localStorage.setItem('selectedCourses', JSON.stringify(updated));
   };
-  
-  const isCourseSelected = (courseId) => selectedCourses.some(c => c.id === courseId);
-  
+
+  const fetchEnrollments = async () => {
+    try {
+      const res = await fetch(`http://localhost:8080/enrollments/student/${user.id}`);
+      const data = await res.json();
+      const ids = new Set(data.filter(e => e.status === 'ENROLLED').map(e => e.course.id));
+      setEnrolledIds(ids);
+    } catch (err) {
+      console.error('Failed to fetch enrollments', err);
+    }
+  };
+
+  const handleEnroll = async (course) => {
+    setProcessingIds(prev => new Set(prev).add(course.id));
+    try {
+      const res = await fetch(
+        `http://localhost:8080/enrollments/enroll?studentId=${user.id}&courseId=${course.id}`,
+        { method: 'POST' }
+      );
+      if (!res.ok) throw new Error();
+      setEnrolledIds(prev => new Set(prev).add(course.id));
+      setMessage(`✅ Enrolled in ${course.courseName}`);
+      setTimeout(() => setMessage(''), 3000);
+    } catch {
+      setMessage('❌ Enrollment failed. Please try again.');
+      setTimeout(() => setMessage(''), 3000);
+    } finally {
+      setProcessingIds(prev => { const s = new Set(prev); s.delete(course.id); return s; });
+    }
+  };
+
+  const handleUnenroll = async (course) => {
+    const confirmed = window.confirm(`Are you sure you want to unenroll from "${course.courseName}"?`);
+    if (!confirmed) return;
+
+    setProcessingIds(prev => new Set(prev).add(course.id));
+    try {
+      const res = await fetch(
+        `http://localhost:8080/enrollments/remove?studentId=${user.id}&courseId=${course.id}`,
+        { method: 'PUT' }
+      );
+      if (!res.ok) throw new Error();
+      setEnrolledIds(prev => { const s = new Set(prev); s.delete(course.id); return s; });
+      setMessage(`✅ Unenrolled from ${course.courseName}`);
+      setTimeout(() => setMessage(''), 3000);
+    } catch {
+      setMessage('❌ Unenroll failed. Please try again.');
+      setTimeout(() => setMessage(''), 3000);
+    } finally {
+      setProcessingIds(prev => { const s = new Set(prev); s.delete(course.id); return s; });
+    }
+  };
+
   return (
     <div className="page-container">
       <div className="page-header">
         <h1>Available Courses</h1>
         <p>Select courses to add to your schedule</p>
       </div>
+
+      {message && <div className="error-message" style={{ background: message.startsWith('✅') ? '#d4edda' : '#fee2e2', color: message.startsWith('✅') ? '#155724' : '#dc2626' }}>{message}</div>}
+      {loading && <p>Loading courses...</p>}
+
       <div className="courses-grid">
-        {availableCourses.map(course => (
-          <div key={course.id} className={`course-card ${isCourseSelected(course.id) ? 'selected' : ''}`}>
+        {courses.map(course => (
+          <div key={course.id} className={`course-card ${enrolledIds.has(course.id) ? 'selected' : ''}`}>
             <div className="course-header">
-              <h3>{course.name}</h3>
+              <h3>{course.courseName}</h3>
               <span className="course-code">{course.code}</span>
             </div>
             <div className="course-details">
-              <p><strong>Instructor:</strong> {course.instructor}</p>
+              {course.instructor && <p><strong>Instructor:</strong> {course.instructor}</p>}
               <p><strong>Credits:</strong> {course.credits}</p>
-              <p><strong>Schedule:</strong> {course.schedule}</p>
+              {course.schedule && <p><strong>Schedule:</strong> {course.schedule}</p>}
+              {course.description && <p><strong>Description:</strong> {course.description}</p>}
             </div>
-            <button onClick={() => handleCourseToggle(course)} className={`btn ${isCourseSelected(course.id) ? 'btn-danger' : 'btn-primary'}`}>
-              {isCourseSelected(course.id) ? 'Remove Course' : 'Add Course'}
-            </button>
+            {!isAdmin && (
+              enrolledIds.has(course.id) ? (
+                <button
+                  className="btn btn-danger"
+                  disabled={processingIds.has(course.id)}
+                  onClick={() => handleUnenroll(course)}
+                >
+                  {processingIds.has(course.id) ? 'Processing...' : 'Unenroll'}
+                </button>
+              ) : (
+                <button
+                  className="btn btn-primary"
+                  disabled={processingIds.has(course.id)}
+                  onClick={() => handleEnroll(course)}
+                >
+                  {processingIds.has(course.id) ? 'Processing...' : 'Enroll'}
+                </button>
+              )
+            )}
           </div>
         ))}
       </div>

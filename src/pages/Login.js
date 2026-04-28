@@ -66,9 +66,9 @@ const Login = () => {
     }
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    
+
     if (!formData.email || !formData.password) {
       setError('Please fill in all fields');
       return;
@@ -89,38 +89,62 @@ const Login = () => {
     }
 
     if (isLogin) {
-      // Check if user is registered
-      const registeredUsers = JSON.parse(localStorage.getItem('registeredUsers')) || [];
-      const user = registeredUsers.find(u => u.email === formData.email && u.password === formData.password && u.role === formData.role);
-      
-      if (user) {
-        localStorage.setItem('user', JSON.stringify({ name: user.name, email: user.email, role: user.role }));
-        navigate('/dashboard');
-      } else {
-        setError('Invalid credentials. Please register first.');
+      try {
+        const url = formData.role === 'admin'
+          ? 'http://localhost:8080/admin/login'
+          : 'http://localhost:8080/students/login';
+
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: formData.email, password: formData.password })
+        });
+
+        const data = await res.json();
+
+        if (formData.role === 'admin') {
+          if (!data || data.success === false) {
+            setError('Invalid admin credentials.');
+            return;
+          }
+          localStorage.setItem('user', JSON.stringify({ id: data.id, name: data.name, email: data.email, role: 'admin' }));
+          navigate('/admin');
+        } else {
+          if (!data || !data.id) {
+            setError('Invalid credentials. Please register first.');
+            return;
+          }
+          localStorage.setItem('user', JSON.stringify({ id: data.id, name: data.name, email: data.email, role: 'student' }));
+          navigate('/dashboard');
+        }
+      } catch (err) {
+        setError('Cannot reach server. Is Spring Boot running?');
       }
     } else {
-      // Registration
       if (!formData.name) {
         setError('Please enter your name');
         return;
       }
+      try {
+        const url = formData.role === 'admin'
+          ? 'http://localhost:8080/admin'
+          : 'http://localhost:8080/students';
 
-      const registeredUsers = JSON.parse(localStorage.getItem('registeredUsers')) || [];
-      const existingUser = registeredUsers.find(u => u.email === formData.email);
-      
-      if (existingUser) {
-        setError('User already registered. Please login.');
-        return;
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: formData.name, email: formData.email, password: formData.password })
+        });
+
+        await res.json();
+        setError('Registration successful! Please login.');
+        setIsLogin(true);
+        setFormData({ name: '', email: '', password: '', role: 'student' });
+        setCaptchaInput('');
+        generateCaptcha();
+      } catch (err) {
+        setError('Registration failed. Is Spring Boot running?');
       }
-
-      registeredUsers.push(formData);
-      localStorage.setItem('registeredUsers', JSON.stringify(registeredUsers));
-      setError('Registration successful! Please login.');
-      setIsLogin(true);
-      setFormData({ name: '', email: '', password: '', role: 'student' });
-      setCaptchaInput('');
-      generateCaptcha();
     }
   };
 

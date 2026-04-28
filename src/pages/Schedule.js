@@ -1,24 +1,49 @@
 import React, { useState, useEffect } from 'react';
 
 const Schedule = () => {
+  const user = JSON.parse(localStorage.getItem('user'));
   const [selectedCourses, setSelectedCourses] = useState([]);
   const [totalCredits, setTotalCredits] = useState(0);
-  
+
   useEffect(() => {
-    const saved = JSON.parse(localStorage.getItem('selectedCourses')) || [];
-    setSelectedCourses(saved);
-    const credits = saved.reduce((sum, course) => sum + course.credits, 0);
-    setTotalCredits(credits);
+    if (user?.id) {
+      fetchEnrolledCourses();
+    }
   }, []);
-  
-  const handleRemoveCourse = (courseId) => {
-    const updated = selectedCourses.filter(c => c.id !== courseId);
-    setSelectedCourses(updated);
-    localStorage.setItem('selectedCourses', JSON.stringify(updated));
-    const credits = updated.reduce((sum, course) => sum + course.credits, 0);
-    setTotalCredits(credits);
+
+  const fetchEnrolledCourses = async () => {
+    try {
+      const res = await fetch(`http://localhost:8080/enrollments/student/${user.id}`);
+      const data = await res.json();
+      const enrolled = data
+        .filter(e => e.status === 'ENROLLED')
+        .map(e => ({
+          id: e.course.id,
+          name: e.course.courseName,
+          code: e.course.code,
+          instructor: e.course.instructor,
+          schedule: e.course.schedule,
+          credits: e.course.credits,
+          enrollmentId: e.id
+        }));
+      setSelectedCourses(enrolled);
+      setTotalCredits(enrolled.reduce((sum, c) => sum + (c.credits || 0), 0));
+    } catch (err) {
+      console.error('Failed to fetch schedule', err);
+    }
   };
-  
+
+  const handleRemoveCourse = async (courseId) => {
+    try {
+      await fetch(`http://localhost:8080/enrollments/remove?studentId=${user.id}&courseId=${courseId}`, { method: 'PUT' });
+      const updated = selectedCourses.filter(c => c.id !== courseId);
+      setSelectedCourses(updated);
+      setTotalCredits(updated.reduce((sum, c) => sum + (c.credits || 0), 0));
+    } catch (err) {
+      alert('Failed to remove course');
+    }
+  };
+
   return (
     <div className="page-container">
       <div className="page-header">
